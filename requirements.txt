@@ -1,0 +1,7 @@
+pyTelegramBotAPI
+requests
+pycryptodome
+tqdm
+pillow
+telethon
+Flask
