@@ -11,10 +11,17 @@ import random
 import concurrent.futures
 import inspect  
 import urllib.parse
-from Crypto.Cipher import DES3
+from base64 import b64decode, b64encode
+from urllib.parse import quote
 from datetime import datetime
 from telebot import types
 from concurrent.futures import ThreadPoolExecutor
+
+# 尝试加载加密库，用于国政接口
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+except ImportError:
+    pass
 
 # 屏蔽 SSL 证书报警
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -26,12 +33,37 @@ ADMIN_ID = 6649617045
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
 
+# 国政接口配置
+API_USERINFO = "https://quickapp.gjzwfw.gov.cn/account/normal/userinfo-desensit"
+KEY_BASE64 = "YXVlQmdQTFR1OFY2NXRnVQ=="
+IV_BASE64 = "YXVlQmdQTFR1OFY2NXRnVQ=="
+ENCRY_AES_KEY = """koKocx3nMhyWVVLVIeIwvczakLlcPFak1ILtZJpjD26FhZAYAG47kKlIQgZYCoT3e+L5yH2FYOT3
+5Go847D1ihIvuUbqCenMKHBq5ms2v3Oj+n4lW4rncE5sNDXGO3RJO6yB1gXHl6AOEsTHSqVUSx5B
+O5H5c9V6W+zk+ZQXgtg1BOK8uMtN+tfr8nFuyxZnWlMt0kRe/KYb9bw/3P+5XiQHZQcYP5KUNr/X
+AatNmX47bA7htq5vowxnvy4gQ5ZGjVa4CZNzp4lrORV2FR/autfXFoEnFvwix9K9tP5SwvUDza8s
+YA1fYcstRM2N910pfVaXgYUMSaR2AMtTwiMJ4K3y+sgfA4trXI61J34Lf/AspuuV5q9lTfcHlloH
+HOZhIkgRA4wrZGVmxCSYX3uV76OrnupW9hi/nwzCRfmw46PdPE+rjtSoZlc8aLp5CbIvWxlXsScM
+q0g/4yr90EC6Gn4BnTbHYJz+yjnVxofPnDWCyz/xkUdFNKCyFfx+XSt7"""
+
 # 外部接口配置
 AUTH_BEARER = "bearer eyJhbGciOiJIUzI1NiJ9.eyJwaG9uZSI6IisxOTM3ODg4NDgyNiIsIm9wZW5JZCI6Im95NW8tNHk3Wnd0WGlOaTVHQ3V3YzVVNDZJYk0iLCJpZENhcmRObyI6IjM3MDQ4MTE5ODgwODIwMzUxNCIsInVzZXJOYW1lIjoi6ams5rCR5by6IiwibG9naW5UaW1lIjoxNzY5NDE1NjYxMTk0LCJhcHBJZCI6Ind4ZjVmZDAyZDEwZGJiMjFkMiIsImlzcmVhbG5hbWUiOnRydWUsInNhYXNVc2VySWQiOm51bGwsImNvbXBhbnlJZCI6bnVsbCwiY29tcGFueVZPUyI6bnVsbH0.GwMYvckFHvFbhSi0NXpQDPiv9ZswUBAImN5bUipBla0"
 
 bot = telebot.TeleBot(API_TOKEN)
 user_points = {}
 user_states = {}
+
+# --- AES加密逻辑 ---
+class AESCipher:
+    def __init__(self):
+        self.key = b64decode(KEY_BASE64)
+        self.iv = b64decode(IV_BASE64)
+    def encrypt(self, plaintext: str) -> str:
+        aesgcm = AESGCM(self.key)
+        encrypted_bytes = aesgcm.encrypt(self.iv, plaintext.encode('utf-8'), None)
+        return b64encode(encrypted_bytes).decode('utf-8')
+
+def format_encry_aes_key():
+    return ENCRY_AES_KEY.replace('\n', '%0A').replace('+', '%2B').replace('/', '%2F')
 
 # --- 数据持久化 ---
 def load_data():
@@ -52,32 +84,46 @@ def save_points():
 
 # ================= 2. 功能逻辑 =================
 
+def guozheng_query_logic(chat_id, name, id_card, uid):
+    """国政掩码查询逻辑"""
+    wait_msg = bot.send_message(chat_id, "⏳ 正在进行国政核验...")
+    try:
+        cipher = AESCipher()
+        body = f"encryAesKey={format_encry_aes_key()}&name={quote(cipher.encrypt(name))}&idNo={quote(cipher.encrypt(id_card))}"
+        headers = {'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8', 'User-Agent': 'Mozilla/5.0'}
+        response = requests.post(API_USERINFO, headers=headers, data=body, timeout=15).json()
+        
+        user_points[uid] -= 0.5
+        save_points()
+        
+        result_text = (f"👤 <b>国政核验结果</b>\n\n"
+                       f"姓名：{name}\n"
+                       f"身份证：<code>{id_card}</code>\n"
+                       f"查询结果：{response.get('data', '未匹配到信息')}\n\n"
+                       f"<b>已扣除 0.5 积分！</b>\n"
+                       f"<b>当前余额: {user_points[uid]:.2f}</b>")
+        bot.delete_message(chat_id, wait_msg.message_id)
+        bot.send_message(chat_id, result_text, parse_mode='HTML')
+    except Exception as e:
+        bot.delete_message(chat_id, wait_msg.message_id)
+        bot.send_message(chat_id, f"⚠️ 核验异常: {str(e)}")
+
 def cp_query_logic(chat_id, car_no, uid):
     """车牌查询 - 对接 ovo1.cc 接口"""
     wait_msg = bot.send_message(chat_id, "⏳ 正在查询...")
-    
-    # 基础信息接口
     base_url = f"https://ovo1.cc/api/car.php?plate={urllib.parse.quote(car_no)}"
-    # 轨迹/详细信息接口
     track_url = f"https://ovo1.cc/api/chegui.php?message={urllib.parse.quote(car_no)}"
-    
     try:
-        # 请求基础信息
         res_base = requests.get(base_url, timeout=15).json()
-        
         if res_base and res_base.get('code') == 200:
             user_points[uid] -= 2.5
             save_points()
-            
             data = res_base.get('data', {})
-            # 基础档案信息显示
             result_text = (f"🚗 <b>车牌查询结果: {car_no}</b>\n\n"
                            f"车主姓名：{data.get('name2', '未知')}\n"
                            f"联系电话：{data.get('phone', '未知')}\n"
                            f"身份证号：<code>{data.get('id_card', '未知')}</code>\n"
                            f"联系地址：{data.get('address', '未知')}\n")
-            
-            # 尝试请求详细轨迹
             try:
                 res_track = requests.get(track_url, timeout=10).json()
                 if res_track.get('code') == 200:
@@ -86,22 +132,17 @@ def cp_query_logic(chat_id, car_no, uid):
                         result_text += "\n📑 <b>详细订单信息：</b>\n"
                         for k, v in order_data.items():
                             if v: result_text += f"{k}：{v}\n"
-            except:
-                pass
-
+            except: pass
             result_text += (f"\n<b>已扣除 2.5 积分！</b>\n"
                             f"<b>当前余额: {user_points[uid]:.2f}</b>")
-            
             bot.delete_message(chat_id, wait_msg.message_id)
             bot.send_message(chat_id, result_text, parse_mode='HTML')
         else:
-            # 修正显示问题：移除多余字符，确保 HTML 解析
             bot.delete_message(chat_id, wait_msg.message_id)
             error_msg = (f"🚗 车牌查询结果:\n\n未匹配到有效车档信息。\n\n"
                          f"查询无结果，未扣除积分。\n"
                          f"<b>当前余额: {user_points[uid]:.2f}</b>")
             bot.send_message(chat_id, error_msg, parse_mode='HTML')
-            
     except Exception as e:
         bot.edit_message_text(f"⚠️ 查询异常: {str(e)}", chat_id, wait_msg.message_id)
 
@@ -164,7 +205,7 @@ def get_main_text(source, uid, pts):
 
 # ================= 4. 消息处理 =================
 
-@bot.message_handler(commands=['start', '3ys', '2ys', 'cp', 'add'])
+@bot.message_handler(commands=['start', '3ys', '2ys', 'cp', 'add', 'guozheng'])
 def handle_commands(message):
     uid, chat_id = message.from_user.id, message.chat.id
     cmd_parts = message.text.split()
@@ -174,6 +215,12 @@ def handle_commands(message):
     if cmd == 'start':
         if uid not in user_points: user_points[uid] = 0.0
         bot.send_message(chat_id, get_main_text(message, uid, user_points[uid]), parse_mode='HTML', reply_markup=get_main_markup())
+    
+    elif cmd == 'guozheng':
+        if current_pts < 0.5: return bot.send_message(chat_id, "<b>积分不足，请先充值！</b>", parse_mode='HTML')
+        if len(cmd_parts) < 3: return bot.send_message(chat_id, "使用格式：/guozheng 姓名 身份证号")
+        guozheng_query_logic(chat_id, cmd_parts[1], cmd_parts[2], uid)
+
     elif cmd == '2ys':
         if current_pts < 0.01: return bot.send_message(chat_id, "<b>积分不足，请先充值！</b>", parse_mode='HTML')
         bot.send_message(chat_id, "请输入：姓名 身份证"); user_states[chat_id] = {'step': 'v_2ys'}
@@ -237,23 +284,23 @@ def handle_callback(call):
     uid, pts = call.from_user.id, user_points.get(call.from_user.id, 0.0)
     
     if call.data == "view_help":
-        # ================= 还原后的使用帮助文案 =================
         help_text = (
             "<b>🛠️ 使用帮助</b>\n"
+            "<b>国政掩码查询</b>\n"
+            "<b>发送 /guozheng 姓名 身份证 进行查询</b>\n"
+            "<b>每次扣除 0.5 积分</b>\n"
+            "<b>——————————————————</b>\n"
             "<b>名字-身份证核验 (企业级)</b>\n"
-            "<b>全天 24h 秒出 毫秒级响应</b>\n"
             "<b>发送 /2ys 进行核验</b>\n"
             "<b>每次核验扣除 0.01 积分</b>\n"
             "<b>——————————————————</b>\n"
             "<b>名字-手机号-身份证核验 (企业级)</b>\n"
-            "<b>全天 24h 秒出 毫秒级响应</b>\n"
             "<b>发送 /3ys 进行核验</b>\n"
             "<b>每次核验扣除 0.05 积分</b>\n"
             "<b>——————————————————</b>\n"
             "<b>车牌号查询</b>\n"
             "<b>发送 /cp 进行查询</b>\n"
-            "<b>全天 24h 秒出</b>\n"
-            "<b>每次查询扣除 2.5 积分 空不扣除积分</b>"
+            "<b>每次查询扣除 2.5 积分</b>"
         )
         bot.edit_message_text(help_text, call.message.chat.id, call.message.message_id, reply_markup=get_help_markup(), parse_mode='HTML')
     elif call.data == "view_pay":
@@ -262,5 +309,5 @@ def handle_callback(call):
         bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
 
 if __name__ == '__main__':
-    print("Bot 正在运行 (文案还原完成)...")
+    print("Bot 正在运行 (功能完整集成)...")
     bot.infinity_polling(timeout=10)
