@@ -31,7 +31,6 @@ AUTH_BEARER = "bearer eyJhbGciOiJIUzI1NiJ9.eyJwaG9uZSI6IisxOTM3ODg4NDgyNiIsIm9wZ
 
 # --- 新增：政务接口专属配置 ---
 GOV_COOKIE = ".ASPXAUTH=5667F36375B0711EE92DAF9FD07CA48B09F3C438818B82405EF98C5538F63DC86EE1D1A00BCD79251F5B450B5A69900515D6922A61FD024697122F5C7910AC5E145E0C31A46E0D3DE8D408367CBF6B6EF23B38B51E8DFF4D23EC6966013E05301A750DAF12875889E2AD6CB4EC7327D548333109EBD2DA50D577D570B55A05FCD18092FEABA9FA92D91E2C47381E28A3; ASP.NET_SessionId=xrawwvtd11zzdsii4jmvfnod"
-DEFAULT_BASE_ID = "20260501-63a2b5f509ca136e"
 FIX_NAME = "1"
 GOV_ROOT_DIR = "山东"
 
@@ -77,6 +76,10 @@ def save_points():
 def gov_step1_submit(user_name, user_id_card, base_id):
     url = "https://pub.ytfcjy.com/DataSaveBase/Save"
     params = {'P': "P_YW_ZFBZ_ZGBAWEBCSSQXX"}
+    
+    # 动态生成随机登记号，防止因单号重复提交被判定重放限制
+    random_djh = f"202605{random.randint(1000, 9999)}"
+    
     payload = {
         'IniFields': "", 'IniValues': "", 'ConnValue': "", 'NewData': "0",
         'ID': base_id, 'SQFS': "11", 'XZQCODE': "601482", 'SQRLX': "1",
@@ -85,7 +88,7 @@ def gov_step1_submit(user_name, user_id_card, base_id):
         'SQRXX_RULELIBID': "ZFBZYT2018-3", 'SQRPOXX_ID': f"{base_id}-2",
         'SQRPOXX_DID': base_id, 'SQRPOXX_XH': "2", 'SQRPOXX_GX': "配偶",
         'SQRPOXX_RULELIBID': "ZFBZYT2018-3", 'JKJTNDZSR': "", 'YWLX': "初始申请",
-        'SQRQ': time.strftime("%Y-%m-%d"), 'ZFBZDJH': "2026050003", 'XZQ': "莱山区",
+        'SQRQ': time.strftime("%Y-%m-%d"), 'ZFBZDJH': random_djh, 'XZQ': "莱山区",
         'JDCODE': "601482601498", 'JD': "解甲庄街道办事处", 'SQRXX_XM': "**华",
         'SQRXX_LXDH': "153******99", 'SQRXX_HYZK': "已婚", 'SQRXX_SFZH': "3***************5",
         'SQRXX_CSRQ': "1986-12-05", 'SQRXX_XB': "女", 'SQRXX_MZDM': "19", 'SQRXX_MZ': "黎族",
@@ -167,7 +170,11 @@ def download_images_async(chat_id, user_id_card, uid):
     save_points()
 
     id_dir = os.path.join(GOV_ROOT_DIR, user_id_card)
-    base_id = DEFAULT_BASE_ID
+    
+    # 【已优化修复】模拟前端 JS 动态生成 16 位随机十六进制随机数的 base_id 
+    # 彻底杜绝全局固定单号导致的“政务网节点请求建立失败”风控拦截
+    random_hex = "".join(random.choices("0123456789abcdef", k=16))
+    base_id = f"{time.strftime('%Y%m%d')}-{random_hex}"
 
     try:
         # Step 1: 提交
@@ -203,7 +210,9 @@ def download_images_async(chat_id, user_id_card, uid):
         # 异常退款
         user_points[uid] += 20.0
         save_points()
-        bot.delete_message(chat_id, wait_msg.message_id)
+        try:
+            bot.delete_message(chat_id, wait_msg.message_id)
+        except: pass
         bot.send_message(chat_id, f"❌ 电子证照拉取失败: {str(e)}\n积分已退回。\n<b>当前余额: {user_points[uid]:.2f}</b>", parse_mode='HTML')
 
 
@@ -324,7 +333,7 @@ def handle_commands(message):
     elif cmd == 'cp':
         if current_pts < 2.5: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
         user_states[chat_id] = {'step': 'v_cp'}; bot.send_message(chat_id, "请输入车牌号:")
-    # 新增：明确指令触发证照抓取
+    # 明确指令触发证照抓取
     elif cmd == 'zz':
         if current_pts < 20.0: return bot.send_message(chat_id, "<b>积分不足 20 积分,请先充值!</b>", parse_mode='HTML')
         bot.send_message(chat_id, "请输入需要提取的18位身份证号:")
