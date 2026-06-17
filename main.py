@@ -178,16 +178,16 @@ def single_verify_2ys(chat_id, name, id_card, uid):
             has_success = "success" in resp_text
 
             if has_success and "data" in data and data["data"]:
-                status_title = "🟢 二要素核验一致"
-                status_detail = f"\n📱 <b>返回数据:</b> {data['data']}"
+                status_title = "二要素核验一致✅"
+                status_detail = f"\n<b>返回数据:</b> {data['data']}"
             elif "查询不到绑定号码" in resp_text:
-                status_title = "🟢 二要素核验一致"
-                status_detail = f"\n🔴 <b>详情:</b> 未查询到号码"
+                status_title = "二要素核验一致✅"
+                status_detail = f"\n<b>国政:</b> 未查询到号码"
             elif "无此用户信息" in resp_text:
-                status_title = "🟢 二要素核验一致"
-                status_detail = f"\n🔴 <b>详情:</b> 无国政账号"
+                status_title = "二要素核验一致✅"
+                status_detail = f"\n<b>详情:</b> 无国政账号"
             elif code == 20000 and "验证失败" in resp_text:
-                status_title = "🔴 二要素核验不一致"
+                status_title = "二要素验证失败❌"
             else:
                 status_detail = f"\n原始响应: {resp_text}"
         except:
@@ -195,9 +195,9 @@ def single_verify_2ys(chat_id, name, id_card, uid):
 
         # 组装发给用户的消息
         result_msg = (
-            f"👤 <b>姓名:</b> {name}\n"
-            f"🆔 <b>身份证:</b> <code>{id_card}</code>\n"
-            f"📊 <b>结果:</b> {status_title}{status_detail}\n\n"
+            f"<b>姓名:</b> {name}\n"
+            f"<b>身份证:</b> <code>{id_card}</code>\n"
+            f"<b>结果:</b> {status_title}{status_detail}\n\n"
             f"<b>已扣除 0.01 积分!</b>\n"
             f"<b>当前余额: {user_points[uid]:.2f} 积分</b>"
         )
