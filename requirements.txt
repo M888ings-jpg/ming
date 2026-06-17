@@ -6,5 +6,4 @@ pillow
 telethon
 Flask
 cryptography
-gmssl
-telegram
+
