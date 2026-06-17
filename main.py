@@ -10,9 +10,9 @@ from urllib3.util.ssl_ import create_urllib3_context
 from gmssl import sm2, sm4
 from gmssl.sm3 import sm3_hash
 
-# 引入 Telegram Bot 相关的库 (python-telegram-bot v20.x 异步版本)
+# 引入 Telegram Bot 相关的库 (修正导入：ConversationHandler)
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationManager
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 # 定义对话状态
 NAME, IDCARD = range(2)
@@ -130,7 +130,7 @@ async def get_idcard_and_run(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if img_resp.status_code == 200:
             await status_msg.edit_text("图片获取成功，正在发送至您的聊天框...")
             
-            # 使用 io.BytesIO 直接把内存中的二进制流转化为虚拟文件发送，不占用磁盘空间
+            # 使用 io.BytesIO 直接把内存中的二进制流转化为虚拟文件发送
             photo_file = io.BytesIO(img_resp.content)
             photo_file.name = f"{id_card}.png"
             
@@ -139,7 +139,6 @@ async def get_idcard_and_run(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 photo=photo_file, 
                 caption=f"✅ 成功获取到【{username}】的身份证图片。"
             )
-            # 删除中途的提示消息
             await status_msg.delete()
         else:
             await status_msg.edit_text(f"❌ 图片下载失败，接口返回状态码: {img_resp.status_code}")
@@ -147,12 +146,12 @@ async def get_idcard_and_run(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await status_msg.edit_text(f"💥 运行中出现异常: {str(e)}")
 
-    return ConversationManager.END
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/cancel 取消当前操作"""
     await update.message.reply_text("已取消当前查询。随时可以发送 /start 重新开始。")
-    return ConversationManager.END
+    return ConversationHandler.END
 
 def main():
     # 填入你提供的 Token
@@ -161,8 +160,8 @@ def main():
     # 初始化 Telegram 机器人实例
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # 配置引导式对话流程 (姓名 -> 身份证)
-    conv_handler = ConversationManager(
+    # 配置引导式对话流程 (修正为 ConversationHandler)
+    conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
