@@ -17,12 +17,6 @@ from concurrent.futures import ThreadPoolExecutor
 from base64 import b64decode, b64encode
 from urllib.parse import quote
 
-# 核心加密组件 (用于新二要素)
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except ImportError:
-    print("❌ 核心加密组件未安装, 请安装: pip install cryptography")
-
 # 屏蔽 SSL 证书报警
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
@@ -32,18 +26,6 @@ API_TOKEN = '8930639390:AAELBdmzE09Hq8bVDL-OwIejp5qNA0ymcfw'
 ADMIN_ID = 6649617045 
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
-
-# 新二要素国政接口配置
-API_USERINFO = "https://quickapp.gjzwfw.gov.cn/account/normal/userinfo-desensit"
-KEY_BASE64 = "YXVlQmdQTFR1OFY2NXRnVQ=="
-IV_BASE64 = "YXVlQmdQTFR1OFY2NXRnVQ=="
-ENCRY_AES_KEY = """koKocx3nMhyWVVLVIeIwvczakLlcPFak1ILtZJpjD26FhZAYAG47kKlIQgZYCoT3e+L5yH2FYOT3
-5Go847D1ihIvuUbqCenMKHBq5ms2v3Oj+n4lW4rncE5sNDXGO3RJO6yB1gXHl6AOEsTHSqVUSx5B
-O5H5c9V6W+zk+ZQXgtg1BOK8uMtN+tfr8nFuyxZnWlMt0kRe/KYb9bw/3P+5XiQHZQcYP5KUNr/X
-AatNmX47bA7htq5vowxnvy4gQ5ZGjVa4CZNzp4lrORV2FR/autfXFoEnFvwix9K9tP5SwvUDza8s
-YA1fYcstRM2N910pfVaXgYUMSaR2AMtTwiMJ4K3y+sgfA4trXI61J34Lf/AspuuV5q9lTfcHlloH
-HOZhIkgRA4wrZGVmxCSYX3uV76OrnupW9hi/nwzCRfmw46PdPE+rjtSoZlc8aLp5CbIvWxlXsScM
-q0g/4yr90EC6Gn4BnTbHYJz+yjnVxofPnDWCyz/xkUdFNKCyFfx+XSt7"""
 
 bot = telebot.TeleBot(API_TOKEN)
 user_points = {}
@@ -67,96 +49,51 @@ def save_points():
         json.dump({str(k): v for k, v in user_points.items()}, f)
 
 
-# ==================== AES加密类 ====================
-class AESCipher:
-    def __init__(self):
-        self.key = b64decode(KEY_BASE64)
-        self.iv = b64decode(IV_BASE64)
-
-    def encrypt(self, plaintext: str) -> str:
-        aesgcm = AESGCM(self.key)
-        encrypted_bytes = aesgcm.encrypt(self.iv, plaintext.encode('utf-8'), None)
-        return b64encode(encrypted_bytes).decode('utf-8')
-
-def format_encry_aes_key():
-    return ENCRY_AES_KEY.replace('\n', '%0A').replace('+', '%2B').replace('/', '%2F')
-
-
 # ================= 2. 功能逻辑 =================
 
 def query_3ys_logic(chat_id, name, id_card, phone, uid):
     """三要素核验"""
     wait_msg = bot.send_message(chat_id, "⏳ 正在核验...")
-    url = "http://xiaowunb.top/3ys.php"
+    url = "http://冰封.top/sys.php"
     params = {"name": name, "sfz": id_card, "sjh": phone}
     try:
-        response = requests.get(url, params=params, timeout=15); response.encoding = 'utf-8'
-        user_points[uid] -= 0.05; save_points()
-        clean_res = re.sub(r'小无 API.*?官方客服:@\w+', '', response.text.strip(), flags=re.DOTALL).strip()
+        response = requests.get(url, params=params, timeout=15, verify=False)
+        response.encoding = 'utf-8'
+        user_points[uid] -= 0.05
+        save_points()
+        
+        clean_res = response.text.strip()
         res_status = "三要素核验成功✅" if ("成功" in clean_res or "一致" in clean_res) else "三要素核验失败❌"
+        
         bot.delete_message(chat_id, wait_msg.message_id)
-        bot.send_message(chat_id, f"姓名:{name}\n手机号:{phone}\n身份证:{id_card}\n结果:{res_status}\n\n"
+        bot.send_message(chat_id, f"姓名:{name}\n手机号:{phone}\n身份证:{id_card}\n结果:{res_status}\n详情:{clean_res}\n\n"
                                   f"<b>已扣除 0.05 积分!</b>\n<b>当前余额:{user_points[uid]:.2f}</b>", parse_mode='HTML')
-    except Exception as e: bot.edit_message_text(f"⚠️ 核验异常: {str(e)}", chat_id, wait_msg.message_id)
+    except Exception as e: 
+        bot.edit_message_text(f"⚠️ 核验异常: {str(e)}", chat_id, wait_msg.message_id)
 
 def single_verify_2ys(chat_id, name, id_card, uid):
-    """二要素核验 - 已替换为国政新接口逻辑"""
-    wait_msg = bot.send_message(chat_id, "⏳ 正在进行国政二要素核验...")
+    """二要素核验"""
+    wait_msg = bot.send_message(chat_id, "⏳ 正在进行二要素核验...")
+    url = "http://冰封.top/二要素.php"
+    params = {"name": name, "sfz": id_card}
     
     try:
-        cipher = AESCipher()
-        enc_name = cipher.encrypt(name)
-        enc_id = cipher.encrypt(id_card)
-    except Exception as crypto_err:
-        bot.edit_message_text(f"❌ 加密组件出错: {crypto_err}\n请确保服务器环境已安装 cryptography 库。", chat_id, wait_msg.message_id)
-        return
-
-    body = f"encryAesKey={format_encry_aes_key()}&name={quote(enc_name)}&idNo={quote(enc_id)}"
-    headers = {
-        'brand': 'huawei',
-        'version': '427',
-        'user-agent': 'Mozilla/5.0 (Linux; Android 7.1.2)',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-    }
-
-    try:
-        resp = requests.post(API_USERINFO, headers=headers, data=body, timeout=15)
-        resp_text = resp.text
+        response = requests.get(url, params=params, timeout=15, verify=False)
+        response.encoding = 'utf-8'
         
         # 扣除积分
         user_points[uid] -= 0.01
         save_points()
         
-        # 默认解析状态
-        status_title = "🟡 二要素核验失败"
-        status_detail = ""
-        
-        try:
-            data = json.loads(resp_text)
-            code = data.get("code")
-            has_success = "success" in resp_text
-
-            if has_success and "data" in data and data["data"]:
-                status_title = "二要素核验一致✅"
-                status_detail = f"\n<b>返回数据:</b> {data['data']}"
-            elif "查询不到绑定号码" in resp_text:
-                status_title = "二要素核验一致✅"
-                status_detail = f"\n<b>国政:</b> 未查询到号码"
-            elif "无此用户信息" in resp_text:
-                status_title = "二要素核验一致✅"
-                status_detail = f"\n<b>详情:</b> 无国政账号"
-            elif code == 20000 and "验证失败" in resp_text:
-                status_title = "二要素验证失败❌"
-            else:
-                status_detail = f"\n原始响应: {resp_text}"
-        except:
-            status_detail = f"\n原始响应: {resp_text}"
+        clean_res = response.text.strip()
+        status_title = "二要素核验一致✅" if ("成功" in clean_res or "一致" in clean_res) else "二要素核验失败❌"
 
         # 组装发给用户的消息
         result_msg = (
             f"<b>姓名:</b> {name}\n"
             f"<b>身份证:</b> <code>{id_card}</code>\n"
-            f"<b>结果:</b> {status_title}{status_detail}\n\n"
+            f"<b>结果:</b> {status_title}\n"
+            f"<b>返回内容:</b> {clean_res}\n\n"
             f"<b>已扣除 0.01 积分!</b>\n"
             f"<b>当前余额: {user_points[uid]:.2f} 积分</b>"
         )
@@ -242,7 +179,7 @@ def handle_all_text(message):
             if current_pts < 0.05: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
             return query_3ys_logic(chat_id, n, i, p, uid)
             
-    # 二要素自动识别 (已完美接入新接口)
+    # 二要素自动识别
     if len(parts) == 2:
         n, i = None, None
         for x in parts:
@@ -280,5 +217,5 @@ def handle_callback(call):
         bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
 
 if __name__ == '__main__':
-    print("Bot 正在运行 (二要素已接入国政通新接口)...")
+    print("Bot 正在运行 (接口已更新)...")
     bot.infinity_polling(timeout=10)
