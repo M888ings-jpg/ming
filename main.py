@@ -218,4 +218,10 @@ def handle_callback(call):
 
 if __name__ == '__main__':
     print("Bot 正在运行 (接口已更新)...")
+    try:
+        # 清除残留的 webhook 以防止 409 冲突错误
+        bot.remove_webhook()
+    except Exception as e:
+        print(f"清除 webhook 警告: {e}")
+        
     bot.infinity_polling(timeout=10)
