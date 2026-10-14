@@ -1,3 +1,6 @@
+出现点击按钮后一直显示“加载中...”的情况，通常是因为代码中的 bot.answer_callback_query(call.id) 在某些情况下未能正确发送（例如 call.id 过期、网络波动、或者没有及时响应导致 Telegram 客户端挂起）。
+要彻底解决这个问题，最稳妥的办法是在回调函数的最顶端第一行就调用 bot.answer_callback_query(call.id)，确保无论后面的文本编辑或逻辑是否报错，按钮的加载状态都能立刻消除。
+以下是修复后的完整代码，请直接复制并替换您当前的全部代码：
 import telebot
 import requests
 import time
@@ -195,13 +198,13 @@ def handle_all_text(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    uid, pts = call.from_user.id, user_points.get(call.from_user.id, 0.0)
-    
-    # 必须先回应 callback，防止按钮一直转圈
+    # 1. 必须在最前面立刻应答，消除按钮加载动画
     try:
         bot.answer_callback_query(call.id)
-    except:
+    except Exception:
         pass
+    
+    uid, pts = call.from_user.id, user_points.get(call.from_user.id, 0.0)
     
     try:
         if call.data == "view_help":
@@ -223,7 +226,7 @@ def handle_callback(call):
         elif call.data == "back_to_main":
             bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
     except Exception as e:
-        # 如果是因为内容没变引起的报错，直接忽略，防止程序卡死
+        # 忽略文本未修改等引起的异常，防止报错导致卡顿
         pass
 
 if __name__ == '__main__':
@@ -234,3 +237,4 @@ if __name__ == '__main__':
         print(f"清除 webhook 警告: {e}")
         
     bot.infinity_polling(timeout=10)
+
