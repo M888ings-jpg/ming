@@ -113,19 +113,17 @@ def get_main_markup():
 def get_pay_markup():
     admin_url = f"https://t.me/{ADMIN_USERNAME.replace('@', '')}"
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton("USDT 充值", url=admin_url), types.InlineKeyboardButton("OkPay 充值", url=admin_url), types.InlineKeyboardButton("RMB 充值", url=admin_url), types.InlineKeyboardButton("🔙", callback_data="back_to_main"))
+    markup.add(types.InlineKeyboardButton("USDT 充值", url=admin_url), types.InlineKeyboardButton("OkPay 充值", url=admin_url), types.InlineKeyboardButton("RMB 充值", url=admin_url), types.InlineKeyboardButton("🔙 返回主菜单", callback_data="back_to_main"))
     return markup
 
 def get_help_markup():
-    return types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙", callback_data="back_to_main"))
+    return types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 返回主菜单", callback_data="back_to_main"))
 
-def get_main_text(source, uid, pts):
-    first_name = source.from_user.first_name if hasattr(source.from_user, 'first_name') else "User"
-    username = f"@{source.from_user.username}" if hasattr(source.from_user, 'username') and source.from_user.username else "未设置"
+def get_main_text(source_user_id, source_first_name, source_username, pts):
     return (f"<b>Admin@铭</b>\n\n"
-            f"<b>用户 ID:</b> <code>{uid}</code>\n"
-            f"<b>用户名称:</b> {first_name}\n"
-            f"<b>用户名:</b> {username}\n"
+            f"<b>用户 ID:</b> <code>{source_user_id}</code>\n"
+            f"<b>用户名称:</b> {source_first_name}\n"
+            f"<b>用户名:</b> {source_username}\n"
             f"<b>当前余额:</b> <code>{pts:.2f}积分</code>\n\n"
             f"<b>使用帮助可查看使用教程</b>\n"
             f"<b>在线充值可支持24小时</b>\n"
@@ -142,7 +140,9 @@ def handle_commands(message):
 
     if cmd == 'start':
         if uid not in user_points: user_points[uid] = 0.0
-        bot.send_message(chat_id, get_main_text(message, uid, user_points[uid]), parse_mode='HTML', reply_markup=get_main_markup())
+        first_name = message.from_user.first_name or "User"
+        username = f"@{message.from_user.username}" if message.from_user.username else "未设置"
+        bot.send_message(chat_id, get_main_text(uid, first_name, username, user_points[uid]), parse_mode='HTML', reply_markup=get_main_markup())
     elif cmd == '2ys':
         if current_pts < 0.01: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
         bot.send_message(chat_id, "请输入:姓名 身份证"); user_states[chat_id] = {'step': 'v_2ys'}
@@ -195,12 +195,17 @@ def handle_all_text(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
+    # 必须最先应答回调，强制消除客户端加载动画
     try:
         bot.answer_callback_query(call.id)
     except Exception:
         pass
     
-    uid, pts = call.from_user.id, user_points.get(call.from_user.id, 0.0)
+    uid = call.from_user.id
+    chat_id = call.message.chat.id
+    pts = user_points.get(uid, 0.0)
+    first_name = call.from_user.first_name or "User"
+    username = f"@{call.from_user.username}" if call.from_user.username else "未设置"
     
     try:
         if call.data == "view_help":
@@ -216,13 +221,15 @@ def handle_callback(call):
                 "<b>发送 /3ys 进行核验</b>\n"
                 "<b>每次核验扣除 0.05 积分</b>"
             )
-            bot.edit_message_text(help_text, call.message.chat.id, call.message.message_id, reply_markup=get_help_markup(), parse_mode='HTML')
+            # 使用发送新消息代替编辑，避免卡顿
+            bot.send_message(chat_id, help_text, reply_markup=get_help_markup(), parse_mode='HTML')
         elif call.data == "view_pay":
-            bot.edit_message_text("🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>", call.message.chat.id, call.message.message_id, reply_markup=get_pay_markup(), parse_mode='HTML')
+            pay_text = "🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>"
+            bot.send_message(chat_id, pay_text, reply_markup=get_pay_markup(), parse_mode='HTML')
         elif call.data == "back_to_main":
-            bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
+            bot.send_message(chat_id, get_main_text(uid, first_name, username, pts), parse_mode='HTML', reply_markup=get_main_markup())
     except Exception as e:
-        pass
+        print(f"回调处理错误: {e}")
 
 if __name__ == '__main__':
     print("Bot 正在运行...")
