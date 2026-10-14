@@ -1,6 +1,3 @@
-出现点击按钮后一直显示“加载中...”的情况，通常是因为代码中的 bot.answer_callback_query(call.id) 在某些情况下未能正确发送（例如 call.id 过期、网络波动、或者没有及时响应导致 Telegram 客户端挂起）。
-要彻底解决这个问题，最稳妥的办法是在回调函数的最顶端第一行就调用 bot.answer_callback_query(call.id)，确保无论后面的文本编辑或逻辑是否报错，按钮的加载状态都能立刻消除。
-以下是修复后的完整代码，请直接复制并替换您当前的全部代码：
 import telebot
 import requests
 import time
@@ -198,7 +195,6 @@ def handle_all_text(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    # 1. 必须在最前面立刻应答，消除按钮加载动画
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -226,15 +222,13 @@ def handle_callback(call):
         elif call.data == "back_to_main":
             bot.edit_message_text(get_main_text(call, uid, pts), call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=get_main_markup())
     except Exception as e:
-        # 忽略文本未修改等引起的异常，防止报错导致卡顿
         pass
 
 if __name__ == '__main__':
-    print("Bot 正在运行 (接口已更新)...")
+    print("Bot 正在运行...")
     try:
         bot.remove_webhook()
     except Exception as e:
         print(f"清除 webhook 警告: {e}")
         
     bot.infinity_polling(timeout=10)
-
