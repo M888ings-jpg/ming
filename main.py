@@ -192,29 +192,34 @@ def handle_callback(call):
     
     uid = call.from_user.id
     chat_id = call.message.chat.id
+    message_id = call.message.message_id
     pts = user_points.get(uid, 0.0)
     first_name = call.from_user.first_name or "User"
     username = f"@{call.from_user.username}" if call.from_user.username else "未设置"
     
-    if call.data == "view_help":
-        help_text = (
-            "<b>🛠️ 使用帮助</b>\n"
-            "<b>名字-身份证核验 (企业级)</b>\n"
-            "<b>全天 24h 秒出 毫秒级响应</b>\n"
-            "<b>发送 /2ys 进行核验</b>\n"
-            "<b>每次核验扣除 0.01 积分</b>\n"
-            "<b>——————————————————</b>\n"
-            "<b>名字-手机号-身份证核验 (企业级)</b>\n"
-            "<b>全天 24h 秒出 毫秒级响应</b>\n"
-            "<b>发送 /3ys 进行核验</b>\n"
-            "<b>每次核验扣除 0.05 积分</b>"
-        )
-        bot.send_message(chat_id, help_text, reply_markup=get_help_markup(), parse_mode='HTML')
-    elif call.data == "view_pay":
-        pay_text = "🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>"
-        bot.send_message(chat_id, pay_text, reply_markup=get_pay_markup(), parse_mode='HTML')
-    elif call.data == "back_to_main":
-        bot.send_message(chat_id, get_main_text(uid, first_name, username, pts), parse_mode='HTML', reply_markup=get_main_markup())
+    try:
+        if call.data == "view_help":
+            help_text = (
+                "<b>🛠️ 使用帮助</b>\n"
+                "<b>名字-身份证核验 (企业级)</b>\n"
+                "<b>全天 24h 秒出 毫秒级响应</b>\n"
+                "<b>发送 /2ys 进行核验</b>\n"
+                "<b>每次核验扣除 0.01 积分</b>\n"
+                "<b>——————————————————</b>\n"
+                "<b>名字-手机号-身份证核验 (企业级)</b>\n"
+                "<b>全天 24h 秒出 毫秒级响应</b>\n"
+                "<b>发送 /3ys 进行核验</b>\n"
+                "<b>每次核验扣除 0.05 积分</b>"
+            )
+            bot.edit_message_text(help_text, chat_id, message_id, reply_markup=get_help_markup(), parse_mode='HTML')
+        elif call.data == "view_pay":
+            pay_text = "🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>"
+            bot.edit_message_text(pay_text, chat_id, message_id, reply_markup=get_pay_markup(), parse_mode='HTML')
+        elif call.data == "back_to_main":
+            bot.edit_message_text(get_main_text(uid, first_name, username, pts), chat_id, message_id, parse_mode='HTML', reply_markup=get_main_markup())
+    except Exception as e:
+        # 忽略由于内容未改变导致的报错，保证切换流畅
+        pass
 
 if __name__ == '__main__':
     print("Bot 正在运行...")
