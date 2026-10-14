@@ -50,12 +50,14 @@ def query_3ys_logic(chat_id, name, id_card, phone, uid):
         user_points[uid] -= 0.05
         save_points()
         
-        clean_res = response.text.strip()
+        raw_text = response.text.strip()
+        # 清洗 API 返回的原始广告/多余信息
+        clean_res = re.sub(r'官方频道.*', '', raw_text, flags=re.DOTALL).strip()
         res_status = "三要素核验成功✅" if ("成功" in clean_res or "一致" in clean_res) else "三要素核验失败❌"
         
         bot.delete_message(chat_id, wait_msg.message_id)
-        bot.send_message(chat_id, f"姓名:{name}\n手机号:{phone}\n身份证:{id_card}\n结果:{res_status}\n详情:{clean_res}\n\n"
-                                  f"<b>已扣除 0.05 积分!</b>\n<b>当前余额:{user_points[uid]:.2f}</b>", parse_mode='HTML')
+        bot.send_message(chat_id, f"姓名: {name}\n手机号: {phone}\n身份证: <code>{id_card}</code>\n结果: {res_status}\n\n"
+                                  f"<b>已扣除 0.05 积分!</b>\n<b>当前余额: {user_points[uid]:.2f} 积分</b>", parse_mode='HTML')
     except Exception as e: 
         bot.edit_message_text(f"⚠️ 核验异常: {str(e)}", chat_id, wait_msg.message_id)
 
@@ -72,14 +74,21 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         user_points[uid] -= 0.01
         save_points()
         
-        clean_res = response.text.strip()
-        status_title = "二要素核验一致✅" if ("成功" in clean_res or "一致" in clean_res) else "二要素核验失败❌"
+        raw_text = response.text.strip()
+        # 清洗 API 返回的原始广告/多余信息，只保留核心结果
+        clean_res = re.sub(r'姓名:.*?身份证:.*?\n+', '', raw_text, flags=re.DOTALL)
+        clean_res = re.sub(r'(官方频道|官网|购买API).*', '', clean_res, flags=re.DOTALL).strip()
+        
+        if not clean_res:
+            clean_res = "姓名与身份证号核验一致" if ("成功" in raw_text or "一致" in raw_text) else "核验不一致"
+
+        status_title = "二要素核验一致✅" if ("成功" in raw_text or "一致" in raw_text) else "二要素核验失败❌"
 
         result_msg = (
             f"<b>姓名:</b> {name}\n"
             f"<b>身份证:</b> <code>{id_card}</code>\n"
             f"<b>结果:</b> {status_title}\n"
-            f"<b>返回内容:</b> {clean_res}\n\n"
+            f"<b>详情:</b> {clean_res}\n\n"
             f"<b>已扣除 0.01 积分!</b>\n"
             f"<b>当前余额: {user_points[uid]:.2f} 积分</b>"
         )
@@ -218,7 +227,6 @@ def handle_callback(call):
         elif call.data == "back_to_main":
             bot.edit_message_text(get_main_text(uid, first_name, username, pts), chat_id, message_id, parse_mode='HTML', reply_markup=get_main_markup())
     except Exception as e:
-        # 忽略由于内容未改变导致的报错，保证切换流畅
         pass
 
 if __name__ == '__main__':
