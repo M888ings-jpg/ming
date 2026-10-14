@@ -1,28 +1,16 @@
 import telebot
 import requests
-import time
-import re
-import threading
 import json
 import os
-import itertools
-import binascii
-import random
-import concurrent.futures
-import inspect  
-import urllib.parse
-from datetime import datetime
+import re
 from telebot import types
-from concurrent.futures import ThreadPoolExecutor
-from base64 import b64decode, b64encode
-from urllib.parse import quote
 
 # 屏蔽 SSL 证书报警
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # ================= 1. 核心配置 =================
-API_TOKEN = '8930639390:AAELBdmzE09Hq8bVDL-OwIejp5qNA0ymcfw'
+API_TOKEN = '8776613830:AAET0H2FmaNHaAw2wJqbydsdNCbC9MZHXqQ'
 ADMIN_ID = 6649617045 
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
@@ -81,14 +69,12 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         response = requests.get(url, params=params, timeout=15, verify=False)
         response.encoding = 'utf-8'
         
-        # 扣除积分
         user_points[uid] -= 0.01
         save_points()
         
         clean_res = response.text.strip()
         status_title = "二要素核验一致✅" if ("成功" in clean_res or "一致" in clean_res) else "二要素核验失败❌"
 
-        # 组装发给用户的消息
         result_msg = (
             f"<b>姓名:</b> {name}\n"
             f"<b>身份证:</b> <code>{id_card}</code>\n"
@@ -107,13 +93,21 @@ def single_verify_2ys(chat_id, name, id_card, uid):
 
 def get_main_markup():
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(types.InlineKeyboardButton("使用帮助", callback_data="view_help"), types.InlineKeyboardButton("在线充值", callback_data="view_pay"))
+    markup.add(
+        types.InlineKeyboardButton("使用帮助", callback_data="view_help"), 
+        types.InlineKeyboardButton("在线充值", callback_data="view_pay")
+    )
     return markup
 
 def get_pay_markup():
     admin_url = f"https://t.me/{ADMIN_USERNAME.replace('@', '')}"
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton("USDT 充值", url=admin_url), types.InlineKeyboardButton("OkPay 充值", url=admin_url), types.InlineKeyboardButton("RMB 充值", url=admin_url), types.InlineKeyboardButton("🔙 返回主菜单", callback_data="back_to_main"))
+    markup.add(
+        types.InlineKeyboardButton("USDT 充值", url=admin_url), 
+        types.InlineKeyboardButton("OkPay 充值", url=admin_url), 
+        types.InlineKeyboardButton("RMB 充值", url=admin_url), 
+        types.InlineKeyboardButton("🔙 返回主菜单", callback_data="back_to_main")
+    )
     return markup
 
 def get_help_markup():
@@ -129,7 +123,7 @@ def get_main_text(source_user_id, source_first_name, source_username, pts):
             f"<b>在线充值可支持24小时</b>\n"
             f"<b>1 USDT = 1 积分</b>")
 
-# ================= 4. 消息处理 =================
+# ================= 4. 消息与回调处理 =================
 
 @bot.message_handler(commands=['start', '3ys', '2ys', 'add'])
 def handle_commands(message):
@@ -164,11 +158,10 @@ def handle_commands(message):
 def handle_all_text(message):
     uid, chat_id, text = message.from_user.id, message.chat.id, message.text.strip()
     if text.startswith('/'): return
-    current_pts = user_points.get(uid, 0.0); state = user_states.get(chat_id, {})
+    current_pts = user_points.get(uid, 0.0)
     
     parts = re.split(r'[,,\s\n]+', text)
     
-    # 三要素自动识别
     if len(parts) >= 3:
         n, p, i = None, None, None
         for x in parts:
@@ -179,7 +172,6 @@ def handle_all_text(message):
             if current_pts < 0.05: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
             return query_3ys_logic(chat_id, n, i, p, uid)
             
-    # 二要素自动识别
     if len(parts) == 2:
         n, i = None, None
         for x in parts:
@@ -191,11 +183,8 @@ def handle_all_text(message):
     
     bot.send_message(chat_id, "⚠️ 无法识别您的输入,请发送 /start 查看可用功能。")
 
-# ================= 5. 回调处理 =================
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-    # 必须最先应答回调，强制消除客户端加载动画
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -207,29 +196,25 @@ def handle_callback(call):
     first_name = call.from_user.first_name or "User"
     username = f"@{call.from_user.username}" if call.from_user.username else "未设置"
     
-    try:
-        if call.data == "view_help":
-            help_text = (
-                "<b>🛠️ 使用帮助</b>\n"
-                "<b>名字-身份证核验 (企业级)</b>\n"
-                "<b>全天 24h 秒出 毫秒级响应</b>\n"
-                "<b>发送 /2ys 进行核验</b>\n"
-                "<b>每次核验扣除 0.01 积分</b>\n"
-                "<b>——————————————————</b>\n"
-                "<b>名字-手机号-身份证核验 (企业级)</b>\n"
-                "<b>全天 24h 秒出 毫秒级响应</b>\n"
-                "<b>发送 /3ys 进行核验</b>\n"
-                "<b>每次核验扣除 0.05 积分</b>"
-            )
-            # 使用发送新消息代替编辑，避免卡顿
-            bot.send_message(chat_id, help_text, reply_markup=get_help_markup(), parse_mode='HTML')
-        elif call.data == "view_pay":
-            pay_text = "🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>"
-            bot.send_message(chat_id, pay_text, reply_markup=get_pay_markup(), parse_mode='HTML')
-        elif call.data == "back_to_main":
-            bot.send_message(chat_id, get_main_text(uid, first_name, username, pts), parse_mode='HTML', reply_markup=get_main_markup())
-    except Exception as e:
-        print(f"回调处理错误: {e}")
+    if call.data == "view_help":
+        help_text = (
+            "<b>🛠️ 使用帮助</b>\n"
+            "<b>名字-身份证核验 (企业级)</b>\n"
+            "<b>全天 24h 秒出 毫秒级响应</b>\n"
+            "<b>发送 /2ys 进行核验</b>\n"
+            "<b>每次核验扣除 0.01 积分</b>\n"
+            "<b>——————————————————</b>\n"
+            "<b>名字-手机号-身份证核验 (企业级)</b>\n"
+            "<b>全天 24h 秒出 毫秒级响应</b>\n"
+            "<b>发送 /3ys 进行核验</b>\n"
+            "<b>每次核验扣除 0.05 积分</b>"
+        )
+        bot.send_message(chat_id, help_text, reply_markup=get_help_markup(), parse_mode='HTML')
+    elif call.data == "view_pay":
+        pay_text = "🛍️ <b>请选择充值方式:</b>\n<b>1 USDT = 1 积分</b>"
+        bot.send_message(chat_id, pay_text, reply_markup=get_pay_markup(), parse_mode='HTML')
+    elif call.data == "back_to_main":
+        bot.send_message(chat_id, get_main_text(uid, first_name, username, pts), parse_mode='HTML', reply_markup=get_main_markup())
 
 if __name__ == '__main__':
     print("Bot 正在运行...")
@@ -238,4 +223,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"清除 webhook 警告: {e}")
         
-    bot.infinity_polling(timeout=10)
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
