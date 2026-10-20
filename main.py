@@ -10,7 +10,7 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # ================= 1. 核心配置 =================
-API_TOKEN = '8776613830:AAET0H2FmaNHaAw2wJqbydsdNCbC9MZHXqQ'
+API_TOKEN = '8516886323:AAH7PN0AjXjUay0HpbJoGE6xFrISPEH9cDg'
 ADMIN_ID = 6649617045 
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
