@@ -184,7 +184,7 @@ def handle_all_text(message):
             if current_pts < 0.01: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
             return single_verify_2ys(chat_id, n, i, uid)
     
-    bot.send_message(chat_id, "⚠️ 无法识别您的输入,请发送 /start 查看可用功能。")
+    bot.send_message(chat_id, "⚠️ 运行异常或无法识别您的输入,请发送 /start 查看可用功能。")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
