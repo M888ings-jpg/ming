@@ -51,7 +51,11 @@ def query_3ys_logic(chat_id, name, id_card, phone, uid):
         save_points()
         
         raw_text = response.text.strip()
-        res_status = "三要素核验成功✅" if ("成功" in raw_text or "一致" in raw_text) else "三要素核验失败❌"
+        # 修正：严谨判断，必须包含成功/一致且不包含不一致/失败
+        if ("一致" in raw_text or "成功" in raw_text) and "不一致" not in raw_text and "失败" not in raw_text:
+            res_status = "三要素核验成功✅"
+        else:
+            res_status = "三要素核验失败❌"
         
         bot.delete_message(chat_id, wait_msg.message_id)
         bot.send_message(chat_id, f"<b>姓名:</b> {name}\n"
@@ -77,7 +81,11 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         save_points()
         
         raw_text = response.text.strip()
-        status_title = "二要素核验一致✅" if ("成功" in raw_text or "一致" in raw_text) else "二要素核验失败❌"
+        # 修正：必须包含“一致”且绝不能包含“不一致”
+        if "一致" in raw_text and "不一致" not in raw_text:
+            status_title = "二要素核验一致✅"
+        else:
+            status_title = "二要素核验失败❌"
 
         result_msg = (
             f"<b>姓名:</b> {name}\n"
